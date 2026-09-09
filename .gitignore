@@ -1,0 +1,27 @@
+# Secrets - never commit these
+.env
+*.key
+credentials.json
+
+# Data - keep the pipeline, not the payload
+data/
+*.json
+*.csv
+*.db
+*.sqlite
+!docs/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
