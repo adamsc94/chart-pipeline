@@ -68,6 +68,20 @@ MusicBrainz search uses Lucene syntax. `artist:Chappell Roan` parses as `artist:
 
 When calling from Python, `requests` handles URL encoding — pass `'artist:"Chappell Roan"'` as a param value and don't hand-encode.
 
+## 007 - Download charts page to disk, and then parse it
+rather than parsing directly, we're gonna download it to the disk and do the parsing step after. that saves us from re-pulling from the server if something goes wrong.
+
+
+## 008 — Preserve the raw artist credit string; defer splitting to enrichment
+
+Noticed that some songs have multiple credits, for example "Dracula" by Tame Impala & JENNIE. Other separators include ",", "with", "featuring", and "and". Potentially others. So for now, in the parser, we are going to store the entire artist string, even if it contains more than one artist. We can separate out the "main artist" later in the enrichment segment.
+
+Deferring is safe because ingestion stores the source string unmodified. If the splitting rule turns out to be wrong, I can fix it and re-run enrichment against the HTML already on disk — no re-scraping, and no risk to past weeks I can't fetch again once the chart rolls over.
+
+Commas are the dangerous separator, since they also appear inside single artist names — "Tyler, The Creator" and "Earth, Wind & Fire" would both shatter under a naive comma split.
+
+When I ran it, I noticed it returned "Tame Impala&JENNIE" and not "Tame Impala & JENNIE", stripping out the whitespace around the "&". After printing the raw text and the stripped text side by side with repr(), I found the source HTML had the spaces all along — get_text(strip=True) was removing them. Once I took that out and replaced it with Python's generic `.strip()`, the string was preserved. The convenience flag had silently altered the source data.
+
 ---
 
 <!-- Next entry goes here. Add one whenever you make a real choice, especially one you rejected an alternative for. -->
