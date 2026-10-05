@@ -58,6 +58,42 @@ One row per charting song, per week:
 | Column | Type | Notes |
 |---|---|---|
 | `chart_date` | date | The chart's own week, parsed from the page |
-| `rank` | int | 1–100 |
+| `rank` | int | 1-100 |
 | `title` | text | |
-| `artist` | text | Raw credit string, not split. See DECISIONS
+| `artist` | text | Raw credit string, not split. See DECISIONS 008 |
+| `last_week` | int or null | Null for debuts and re-entries, since rank 0 does not exist |
+| `peak` | int | Best position reached |
+| `weeks_on_chart` | int | |
+| `weeks_at_no_1` | int | 0 for songs that never topped the chart |
+
+## Data sources
+
+| Source | What it provides | Access | Constraints |
+|---|---|---|---|
+| Billboard | Weekly chart positions | Scraped, no official API | robots.txt permits `/charts/`; one request per week, honest User-Agent |
+| MusicBrainz | Recording metadata, ISRCs, tags | Free, no key | ~1 req/sec; descriptive User-Agent required |
+
+Collected data is not redistributed. `data/` is gitignored, so this repo holds the code that fetches the charts, not a copy of them.
+
+## Known limitations
+
+**Shipped**
+
+- The parser depends on Billboard's current CSS class names, so a redesign will break it. It validates structure before extracting values and raises rather than writing bad rows, so a break fails loudly instead of producing wrong data silently.
+- Six songs per week carry an extra "weeks at no. 1" column that the other 94 do not. Stat values are looked up by label rather than by position to handle this. See DECISIONS 009.
+- The parser takes an explicit filename and does not yet find the most recent chart on its own.
+
+**Planned phases**
+
+- Mix-level duplication in MusicBrainz is resolved by heuristic, not solved. See [docs/DECISIONS.md](docs/DECISIONS.md) entry 003.
+- Genre tags from MusicBrainz are sparse, often one or two votes per recording.
+
+## Decisions
+
+Every significant design choice is logged in [docs/DECISIONS.md](docs/DECISIONS.md) with the reasoning and the tradeoff.
+
+## Roadmap
+
+- **Phase 2, Enrichment:** match charting songs to MusicBrainz recordings, resolve artist credits, pull genre tags and ISRCs
+- **Phase 3, Load:** move processed CSVs into a database with a schema supporting cross-week queries
+- **Phase 4, Orchestration:** scheduling, retry handling, and containerisation
