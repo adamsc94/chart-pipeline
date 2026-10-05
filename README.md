@@ -1,44 +1,63 @@
 # Chart Pipeline
 
-<!-- ONE SENTENCE. What this does and what question it answers. Write it last, rewrite it often. -->
-A scheduled pipeline that ingests Billboard chart data, enriches it with MusicBrainz metadata, and loads it into a queryable store.
+Ingests the Billboard Hot 100 each week and parses it into validated, structured data, with MusicBrainz enrichment planned.
 
-**Status:** in development
+**Status:** Phase 1 (fetching and parsing) complete and working end to end. Have yet to build enrichment, loading, and scheduling.
 
 ---
 
 ## The question
 
-<!-- What are you actually trying to find out? Be specific enough that you'd know if you failed. -->
-
-TODO
+What identifiable traits such as genre, song length, solo versus collaboration are trending in hit music?
 
 ## Architecture
 
-<!-- Diagram goes here once phase 1 runs. Mermaid renders natively on GitHub - see docs/ for a starter. -->
+1. **Fetch** the live chart page and save the raw HTML to `data/raw/`, named by fetch date.
+2. **Parse** the 100 chart rows, validating structure before extracting any values.
+3. **Write** a validated CSV to `data/processed/`, named by the chart's own week.
 
-TODO
+Raw HTML is saved to disk before any parsing so the parser can be iterated on offline, against bytes that are already captured, without re-requesting the page. Past weeks cannot be re-fetched once a chart rolls over.
 
 ## Running it
 
-<!-- Someone should be able to clone this and get it working without asking you anything. -->
+**1. Clone the repo**
 
-TODO
+```bash
+git clone https://github.com/adamsc94/chart-pipeline.git
+cd chart-pipeline
+```
 
-## Data sources
+**2. Set up the virtual environment and install dependencies**
 
-| Source | What it provides | Access | Constraints |
-|---|---|---|---|
-| Billboard | Weekly chart positions | Scraped, no official API | Check robots.txt; be polite |
-| MusicBrainz | Recording metadata, ISRCs, tags | Free, no key | ~1 req/sec; descriptive User-Agent required |
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-## Known limitations
+Activation is per-session; you must run `source .venv/bin/activate` again in each new terminal. On Windows the command is `.venv\Scripts\activate`.
 
-<!-- Be honest here. This section is a strength, not a weakness. -->
+**3. Fetch and parse a chart**
 
-- Mix-level duplication is resolved by heuristic, not solved. See [docs/DECISIONS.md](docs/DECISIONS.md) entry 003.
-- Genre tags from MusicBrainz are sparse — often one or two votes per recording.
+```bash
+python ingest/fetch_chart.py
+```
 
-## Decisions
+The fetcher writes a dated file to `data/raw/`. Check that folder for the filename, then pass it to the parser:
 
-Every significant design choice is logged in [docs/DECISIONS.md](docs/DECISIONS.md) with the reasoning and the tradeoff.
+```bash
+python ingest/parse_chart.py data/raw/hot100_2026-10-02.html
+```
+
+Output lands in `data/processed/` as a CSV named by the chart's own week, which is not the same as the fetch date.
+
+## Output
+
+One row per charting song, per week:
+
+| Column | Type | Notes |
+|---|---|---|
+| `chart_date` | date | The chart's own week, parsed from the page |
+| `rank` | int | 1–100 |
+| `title` | text | |
+| `artist` | text | Raw credit string, not split. See DECISIONS
