@@ -68,20 +68,40 @@ MusicBrainz search uses Lucene syntax. `artist:Chappell Roan` parses as `artist:
 
 When calling from Python, `requests` handles URL encoding — pass `'artist:"Chappell Roan"'` as a param value and don't hand-encode.
 
-## 007 - Download charts page to disk, and then parse it
-rather than parsing directly, we're gonna download it to the disk and do the parsing step after. that saves us from re-pulling from the server if something goes wrong.
+---
 
+## 007 — Download the charts page to disk, then parse it
 
-## 008 — Preserve the raw artist credit string; defer splitting to enrichment
+Rather than parsing directly from the network response, download the page to disk and run the parsing step afterwards. That saves re-pulling from the server if something goes wrong, and it makes runs idempotent and reproducible. Past weeks also cannot be re-fetched once a chart rolls over, so the saved HTML is the only copy of that week that will ever exist.
 
-Noticed that some songs have multiple credits, for example "Dracula" by Tame Impala & JENNIE. Other separators include ",", "with", "featuring", and "and". Potentially others. So for now, in the parser, we are going to store the entire artist string, even if it contains more than one artist. We can separate out the "main artist" later in the enrichment segment.
-
-Deferring is safe because ingestion stores the source string unmodified. If the splitting rule turns out to be wrong, I can fix it and re-run enrichment against the HTML already on disk — no re-scraping, and no risk to past weeks I can't fetch again once the chart rolls over.
-
-Commas are the dangerous separator, since they also appear inside single artist names — "Tyler, The Creator" and "Earth, Wind & Fire" would both shatter under a naive comma split.
-
-When I ran it, I noticed it returned "Tame Impala&JENNIE" and not "Tame Impala & JENNIE", stripping out the whitespace around the "&". After printing the raw text and the stripped text side by side with repr(), I found the source HTML had the spaces all along — get_text(strip=True) was removing them. Once I took that out and replaced it with Python's generic `.strip()`, the string was preserved. The convenience flag had silently altered the source data.
+The tradeoff is another file and folder to manage. I would only consider parsing directly from the response if disk space became a real constraint.
 
 ---
 
-<!-- Next entry goes here. Add one whenever you make a real choice, especially one you rejected an alternative for. -->
+## 008 — Preserve the raw artist credit string; defer splitting to enrichment
+
+Noticed that some songs have multiple credits, for example "Dracula" by Tame Impala & JENNIE. Other separators include ",", "with", "featuring", and "and", and potentially others. So for now, the parser stores the entire artist string even when it contains more than one artist. We can separate out the "main artist" later in the enrichment step.
+
+Deferring is safe because ingestion stores the source string unmodified. If the splitting rule turns out to be wrong, I can fix it and re-run enrichment against the HTML already on disk, with no re-scraping and no risk to past weeks I can't fetch again once the chart rolls over.
+
+Commas are the dangerous separator, since they also appear inside single artist names. "Tyler, The Creator" and "Earth, Wind & Fire" would both shatter under a naive comma split.
+
+When I ran it, I noticed it returned "Tame Impala&JENNIE" and not "Tame Impala & JENNIE", stripping out the whitespace around the "&". After printing the raw text and the stripped text side by side with `repr()`, I found the source HTML had the spaces all along; `get_text(strip=True)` was removing them. Once I took that out and replaced it with Python's generic `.strip()`, the string was preserved. The convenience flag had silently altered the source data.
+
+---
+
+## 009 — Stat fields are parsed by label lookup
+
+I started parsing by position, but added a check that the stat labels appeared where I expected them. That check fired on the first run: some songs carry an extra "WEEKS AT NO. 1" field between PEAK and WEEKS ON CHART, which would have silently shifted every value after it.
+
+After that I switched to a label lookup, pairing each label with the value that follows it. This added a marginal amount of complexity but made the parser much more robust, and it handles both layouts without special-casing either one.
+
+If I were reasonably confident the layout was consistent from song to song and would stay that way, I would consider switching back to positional, but only with robust validation.
+
+Note that RANK is still positional, making this technically a hybrid. Billboard prints no label above the rank number, so there is nothing to anchor to. No validation currently covers that field.
+
+---
+
+
+---
+
