@@ -101,7 +101,20 @@ If I were reasonably confident the layout was consistent from song to song and w
 Note that RANK is still positional, making this technically a hybrid. Billboard prints no label above the rank number, so there is nothing to anchor to. No validation currently covers that field.
 
 ---
+---
 
+## 010 — Parse with the new October layout in mind
 
+---
+
+## 010 — Parse with the new October layout in mind
+
+Billboard changed their HTML layout between September 9 and October 2, and they might change it again. For simplicity's sake I'm going to build this based on the updated October layout for now, but if the layout changes again, then I might consider making a more robust parser that will work with future changes.
+
+I found out because the label validation from 009 raised on the September file rather than parsing it wrong. Three weeks was all it took for the fragility the README warns about to actually happen.
+
+The difference turned out to be narrow: September uses `WEEKS` where October uses `WEEKS ON CHART`, and October adds `WEEKS AT NO. 1`. Both layouts render every stat label twice, desktop and mobile, which meant my `stats` dictionary was silently overwriting each value with its duplicate. Harmless so far since the copies agree, but the parser now raises if they ever conflict.
+
+The September file stays in `data/raw/` but doesn't get parsed. The dataset starts from the October 3 chart.
 ---
 

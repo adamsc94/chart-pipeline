@@ -75,7 +75,17 @@ def parse_chart(html_path):
             label = label_el.get_text().strip()
             value_el = label_el.find_next_sibling()
             if value_el is not None:
-                stats[label] = value_el.get_text().strip()
+                value = value_el.get_text().strip()
+                # Desktop and mobile variants both render, so every label
+                # appears twice. Tolerate that, but catch real conflicts.
+                if label in stats:
+                    if stats[label] != value:
+                        raise ValueError(
+                            f"Conflicting values for {label!r}: "
+                            f"{stats[label]!r} vs {value!r}"
+                        )
+                    continue
+                stats[label] = value
 
         missing = [lbl for lbl in REQUIRED_LABELS if lbl not in stats]
         if missing:
