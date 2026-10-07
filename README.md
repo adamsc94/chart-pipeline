@@ -94,6 +94,8 @@ Every significant design choice is logged in [docs/DECISIONS.md](docs/DECISIONS.
 
 ## Roadmap
 
-- **Phase 2, Enrichment:** match charting songs to MusicBrainz recordings, resolve artist credits, pull genre tags and ISRCs
-- **Phase 3, Load:** move processed CSVs into a database with a schema supporting cross-week queries
-- **Phase 4, Orchestration:** scheduling, retry handling, and containerisation
+- **Phase 2, Enrichment:** done. Matches chart entries to MusicBrainz recordings by primary artist + title, verifying that the returned credits contain every artist Billboard listed. 91% match rate on the first chart; unmatched songs are skipped and counted by reason.
+- **Phase 3, Load:** move processed and enriched CSVs into SQLite, with a chart table and a recordings table joined on recording ID.
+- **Phase 4, Orchestration:** scheduling, retry handling, containerisation, and a migration from SQLite to PostgreSQL.
+
+**Deeper enrichment, later.** The matcher currently uses only what MusicBrainz's search endpoint returns. Their lookup endpoint can also provide community genre tags, artist attributes such as country of origin and whether the act is a person or a group, and relationship data covering producers and writers. Each costs an extra API call per song, so it is probably only worth doing once the pipeline runs end to end.
