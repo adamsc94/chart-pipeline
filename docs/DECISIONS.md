@@ -100,10 +100,6 @@ If I were reasonably confident the layout was consistent from song to song and w
 
 Note that RANK is still positional, making this technically a hybrid. Billboard prints no label above the rank number, so there is nothing to anchor to. No validation currently covers that field.
 
----
----
-
-## 010 — Parse with the new October layout in mind
 
 ---
 
@@ -118,3 +114,12 @@ The difference turned out to be narrow: September uses `WEEKS` where October use
 The September file stays in `data/raw/` but doesn't get parsed. The dataset starts from the October 3 chart.
 ---
 
+## 011 — Use a hosted PostgreSQL database for data storage
+
+To enable this pipeline to run consistently and on a schedule, I decided to host the data in an online PostgreSQL database, Neon. A scheduled cloud job destroys the machine after every run, so to do week to week analysis the data has to live somewhere else. This option requires signing up for another service, but it's free at the scale of database we need.
+
+I rejected hosting the database locally because that means relying on my laptop being awake for the job to run, and past charts can't be re-fetched once a week rolls over. I also considered simply committing the database to the repo, but rejected it since that goes against the decision not to redistribute any Billboard data. Other hosted platforms such as Supabase were considered and ruled out on their limitations: Supabase pauses free projects after about a week of inactivity, and this project is scheduled to run once a week.
+
+If the data got substantially larger, or I didn't want to be tied to another vendor, I would consider changing this.
+
+The migration itself was smaller than expected. `schema.sql` needed no changes at all, because I deliberately wrote standard SQL in Phase 3 rather than SQLite-specific syntax. Only `load_db.py` needed changes, and all three were mechanical: `?` placeholders became `%s`, `INSERT OR IGNORE` became `ON CONFLICT DO NOTHING`, and `INSERT OR REPLACE` became `ON CONFLICT DO UPDATE`. I knew the migration worked when the row counts came back identical to SQLite, 91 recordings after the first week and 113 after the second.

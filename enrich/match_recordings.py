@@ -55,12 +55,18 @@ def search(artist, title, attempts=6):
 
     for attempt in range(attempts):
         time.sleep(2.5)
-        r = requests.get(
-            f"{BASE}/recording",
-            params={"query": query, "fmt": "json", "limit": 10},
-            headers=HEADERS,
-            timeout=15,
-        )
+        try:
+            r = requests.get(
+                f"{BASE}/recording",
+                params={"query": query, "fmt": "json", "limit": 10},
+                headers=HEADERS,
+                timeout=15,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            print(f"    network error, retrying: {e}", file=sys.stderr)
+            time.sleep(5 * (attempt + 1))
+            continue
+
         if r.status_code == 503:
             time.sleep(5 * (attempt + 1))
             continue
@@ -104,59 +110,80 @@ def pick_match(recordings, expected_artists):
     return best, "matched"
 
 
-def enrich_chart(csv_path):
+def existing_ranks(outfile):
+    """Ranks already written to the output file, so a rerun can skip them."""
+    if not outfile.exists():
+        return set()
+    with outfile.open(encoding="utf-8") as f:
+        return {row["rank"] for row in csv.DictReader(f)}
+
+
+def enrich_and_write(csv_path):
+    """Enrich one processed chart CSV, writing each row as it is matched.
+
+    Rows are appended and flushed immediately, so a crash keeps whatever
+    was already done. Rerunning skips ranks already present in the output.
+    """
+    ENRICHED_DIR.mkdir(parents=True, exist_ok=True)
+    outfile = ENRICHED_DIR / csv_path.name
+
+    done = existing_ranks(outfile)
+    if done:
+        print(f"Resuming: {len(done)} rows already written", file=sys.stderr)
+
     with csv_path.open(encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
     reasons = Counter()
-    out_rows = []
+    is_new = not outfile.exists()
 
-    for i, row in enumerate(rows, 1):
-        artists = split_credit(row["artist"])
-        recordings = search(artists[0], row["title"])
-        match, reason = pick_match(recordings, artists)
-        reasons[reason] += 1
+    with outfile.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=OUT_FIELDS)
+        if is_new:
+            writer.writeheader()
 
-        print(f"  [{i}/{len(rows)}] {row['title'][:40]:42} {reason}", file=sys.stderr)
+        for i, row in enumerate(rows, 1):
+            if row["rank"] in done:
+                continue
 
-        if match is None:
-            continue
+            artists = split_credit(row["artist"])
+            recordings = search(artists[0], row["title"])
+            match, reason = pick_match(recordings, artists)
+            reasons[reason] += 1
 
-        out_rows.append(
-            {
-                "chart_date": row["chart_date"],
-                "rank": row["rank"],
-                "title": row["title"],
-                "artist": row["artist"],
-                "mb_recording_id": match["id"],
-                "mb_title": match["title"],
-                "mb_artist_credit": " + ".join(sorted(credited_names(match))),
-                "mb_length_ms": match.get("length"),
-                "mb_first_release_date": match.get("first-release-date"),
-                "mb_isrc": match["isrcs"][0],
-            }
-        )
+            print(
+                f"  [{i}/{len(rows)}] {row['title'][:40]:42} {reason}",
+                file=sys.stderr,
+            )
 
-    return out_rows, reasons
+            if match is None:
+                continue
+
+            writer.writerow(
+                {
+                    "chart_date": row["chart_date"],
+                    "rank": row["rank"],
+                    "title": row["title"],
+                    "artist": row["artist"],
+                    "mb_recording_id": match["id"],
+                    "mb_title": match["title"],
+                    "mb_artist_credit": " + ".join(sorted(credited_names(match))),
+                    "mb_length_ms": match.get("length"),
+                    "mb_first_release_date": match.get("first-release-date"),
+                    "mb_isrc": match["isrcs"][0],
+                }
+            )
+            f.flush()  # straight to disk, so a crash does not lose buffered rows
+
+    if reasons:
+        total = sum(reasons.values())
+        print(f"\nProcessed {total} songs this run", file=sys.stderr)
+        for reason, n in reasons.most_common():
+            print(f"  {reason:20} {n}", file=sys.stderr)
+    print(f"\nWrote {outfile}", file=sys.stderr)
+
+    return outfile
 
 
 if __name__ == "__main__":
-    csv_path = Path(sys.argv[1])
-
-    out_rows, reasons = enrich_chart(csv_path)
-
-    ENRICHED_DIR.mkdir(parents=True, exist_ok=True)
-    outfile = ENRICHED_DIR / csv_path.name
-    with outfile.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=OUT_FIELDS)
-        writer.writeheader()
-        writer.writerows(out_rows)
-
-    total = sum(reasons.values())
-    print(
-        f"\nMatched {len(out_rows)}/{total} ({len(out_rows) / total:.0%})",
-        file=sys.stderr,
-    )
-    for reason, n in reasons.most_common():
-        print(f"  {reason:20} {n}", file=sys.stderr)
-    print(f"\nWrote {outfile}", file=sys.stderr)
+    enrich_and_write(Path(sys.argv[1]))

@@ -149,11 +149,17 @@ def write_csv(songs, chart_date):
     return outfile
 
 
-if __name__ == "__main__":
-    html_path = sys.argv[1]  # argv[1] = filename you pass in
+def parse_and_write(html_path):
+    """Parse a saved chart page and write the processed CSV. Returns the path."""
     html = Path(html_path).read_text(encoding="utf-8")
     chart_date = extract_chart_date(BeautifulSoup(html, "html.parser"))
 
-    results = parse_chart(html_path)
-    outfile = write_csv(results, chart_date)
-    print(f"Wrote {len(results)} rows for {chart_date} to {outfile}", file=sys.stderr)
+    songs = parse_chart(html_path)
+    outfile = write_csv(songs, chart_date)
+    print(f"Wrote {len(songs)} rows for {chart_date} to {outfile}", file=sys.stderr)
+
+    return outfile
+
+
+if __name__ == "__main__":
+    parse_and_write(sys.argv[1])
