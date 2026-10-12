@@ -49,12 +49,12 @@ def split_credit(credit):
     return [p.strip() for p in SEPARATOR_RE.split(credit) if p.strip()]
 
 
-def search(artist, title, attempts=3):
+def search(artist, title, attempts=6):
     """Query MusicBrainz, retrying on 503 rate limiting."""
     query = f'artist:"{artist}" AND recording:"{title}"'
 
     for attempt in range(attempts):
-        time.sleep(1.5)
+        time.sleep(2.5)
         r = requests.get(
             f"{BASE}/recording",
             params={"query": query, "fmt": "json", "limit": 10},
@@ -62,7 +62,7 @@ def search(artist, title, attempts=3):
             timeout=15,
         )
         if r.status_code == 503:
-            time.sleep(3 * (attempt + 1))
+            time.sleep(5 * (attempt + 1))
             continue
         r.raise_for_status()
         return r.json().get("recordings", [])
