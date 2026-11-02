@@ -112,6 +112,7 @@ I found out because the label validation from 009 raised on the September file r
 The difference turned out to be narrow: September uses `WEEKS` where October uses `WEEKS ON CHART`, and October adds `WEEKS AT NO. 1`. Both layouts render every stat label twice, desktop and mobile, which meant my `stats` dictionary was silently overwriting each value with its duplicate. Harmless so far since the copies agree, but the parser now raises if they ever conflict.
 
 The September file stays in `data/raw/` but doesn't get parsed. The dataset starts from the October 3 chart.
+
 ---
 
 ## 011 — Use a hosted PostgreSQL database for data storage
@@ -123,3 +124,19 @@ I rejected hosting the database locally because that means relying on my laptop 
 If the data got substantially larger, or I didn't want to be tied to another vendor, I would consider changing this.
 
 The migration itself was smaller than expected. `schema.sql` needed no changes at all, because I deliberately wrote standard SQL in Phase 3 rather than SQLite-specific syntax. Only `load_db.py` needed changes, and all three were mechanical: `?` placeholders became `%s`, `INSERT OR IGNORE` became `ON CONFLICT DO NOTHING`, and `INSERT OR REPLACE` became `ON CONFLICT DO UPDATE`. I knew the migration worked when the row counts came back identical to SQLite, 91 recordings after the first week and 113 after the second.
+
+---
+
+## 012 — Make enrichment resumable, and handle network failures
+
+The enrichment step calls MusicBrainz once per song, so a full chart takes about four minutes. It was keeping every match in memory and writing the file only at the end, which meant any crash threw away all the work. This happened twice in one day.
+
+Two different failures caused them. The first was a 503, MusicBrainz rate-limiting me. I'd set the delay between requests to 1.5 seconds; raising it to 2.5 stopped the 503s entirely. The retry logic I'd written was treating the symptom, where the delay addressed the cause.
+
+The second was a read timeout, and my retry logic couldn't catch it. I was checking the response's status code, which only works if a response arrives. When a request times out there is no response — the call raises an exception and skips past the retry loop entirely. I now catch timeouts and connection errors explicitly.
+
+Resumability is the real fix. Each matched row is written and flushed to disk immediately rather than held in memory, and on startup the script reads which ranks are already in the output file and skips them. The flush is doing real work here: without it Python buffers the writes, and a crash would lose whatever hadn't been committed yet.
+
+Known gap: unmatched songs aren't written to the file, so a resume re-queries them. With six failures per chart that's about fifteen wasted seconds. Fixing it properly means recording failures with a status column, but I have de-prioritized this for now.
+
+I deferred this twice before building it. It cost me two crashes and roughly seven minutes of API calls in one day, and I was about to schedule this to run unattended, where nobody would be watching to restart it.
