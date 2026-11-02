@@ -1,8 +1,8 @@
 # Chart Pipeline
 
-Ingests the Billboard Hot 100 each week and parses it into validated, structured data, with MusicBrainz enrichment planned.
+Fetches the Billboard Hot 100 each week, parses it into validated structured data, enriches it with MusicBrainz metadata, and loads it into PostgreSQL. Runs weekly on GitHub Actions.
 
-**Status:** Phase 1 (fetching and parsing) complete and working end to end. Have yet to build enrichment, loading, and scheduling.
+**Status:** Phases 1–3 complete and running end to end. Scheduling is live; containerisation is the remaining piece.
 
 ---
 
@@ -13,10 +13,13 @@ What identifiable traits such as genre, song length, solo versus collaboration a
 ## Architecture
 
 1. **Fetch** the live chart page and save the raw HTML to `data/raw/`, named by fetch date.
-2. **Parse** the 100 chart rows, validating structure before extracting any values.
-3. **Write** a validated CSV to `data/processed/`, named by the chart's own week.
+2. **Parse** the 100 chart rows, validating structure before extracting any values, and write a CSV to `data/processed/` named by the chart's own week.
+3. **Enrich** each song by searching MusicBrainz for a matching recording, writing results to `data/enriched/`.
+4. **Load** both CSVs into PostgreSQL as a chart table and a recordings table joined on recording ID.
 
-Raw HTML is saved to disk before any parsing so the parser can be iterated on offline, against bytes that are already captured, without re-requesting the page. Past weeks cannot be re-fetched once a chart rolls over.
+Raw HTML is saved to disk before any parsing so the parser can be iterated on offline against data already captured, without re-requesting the page. Past weeks cannot be re-fetched once a chart rolls over.
+
+Enrichment writes each matched row to disk immediately rather than holding results in memory, and skips ranks already present in the output file on a rerun. A crash costs one song, not the whole run.
 
 ## Running it
 
@@ -37,23 +40,45 @@ pip install -r requirements.txt
 
 Activation is per-session; you must run `source .venv/bin/activate` again in each new terminal. On Windows the command is `.venv\Scripts\activate`.
 
-**3. Fetch and parse a chart**
+**3. Configure your environment**
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+- `MB_CONTACT` — your email. MusicBrainz requires a descriptive User-Agent with a real contact address, and Billboard gets the same honest identification.
+- `DATABASE_URL` — a PostgreSQL connection string. [Neon](https://neon.tech) has a free tier that's more than enough for this. The schema is created automatically on first load.
+
+`.env` is gitignored and never committed.
+
+**4. Run the pipeline**
+
+```bash
+python run_pipeline.py
+```
+
+That runs all four stages in order, passing each stage's output to the next. Takes about four minutes, almost all of it in enrichment — MusicBrainz asks for roughly one request per second, so the pipeline waits 2.5 seconds between calls.
+
+Each stage can also be run on its own if you want to re-do one step:
 
 ```bash
 python ingest/fetch_chart.py
+python ingest/parse_chart.py data/raw/hot100_2026-10-31.html
+python enrich/match_recordings.py data/processed/hot100_2026-10-31.csv
+python load/load_db.py hot100_2026-10-31.csv
 ```
 
-The fetcher writes a dated file to `data/raw/`. Check that folder for the filename, then pass it to the parser:
+## Scheduling
 
-```bash
-python ingest/parse_chart.py data/raw/hot100_2026-10-02.html
-```
+[`.github/workflows/weekly.yml`](.github/workflows/weekly.yml) runs the pipeline every Wednesday at 16:00 UTC, on GitHub's runners rather than my laptop. `MB_CONTACT` and `DATABASE_URL` are stored as repository secrets.
 
-Output lands in `data/processed/` as a CSV named by the chart's own week, which is not the same as the fetch date.
+A scheduled run gets a fresh machine that is destroyed afterwards, which is why the database is hosted rather than local — see [DECISIONS 011](docs/DECISIONS.md).
 
 ## Output
 
-One row per charting song, per week:
+**`chart_entries`** — one row per charting song, per week. `(chart_date, rank)` is the primary key, so re-running a load overwrites rather than duplicating.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -65,6 +90,20 @@ One row per charting song, per week:
 | `peak` | int | Best position reached |
 | `weeks_on_chart` | int | |
 | `weeks_at_no_1` | int | 0 for songs that never topped the chart |
+| `mb_recording_id` | text or null | Links to `recordings`; null when no match was found |
+
+**`recordings`** — one row per MusicBrainz recording, stored once no matter how many weeks a song charts.
+
+| Column | Type | Notes |
+|---|---|---|
+| `mb_recording_id` | text | MusicBrainz ID, primary key |
+| `title` | text | MusicBrainz's title, which often differs from Billboard's |
+| `artist_credit` | text | All credited artists |
+| `length_ms` | int or null | |
+| `first_release_date` | text or null | Text, since MusicBrainz dates are sometimes just a year |
+| `isrc` | text or null | Industry recording identifier |
+
+Example queries live in [`analysis/`](analysis/).
 
 ## Data sources
 
@@ -77,16 +116,13 @@ Collected data is not redistributed. `data/` is gitignored, so this repo holds t
 
 ## Known limitations
 
-**Shipped**
-
-- The parser depends on Billboard's current CSS class names, so a redesign will break it. It validates structure before extracting values and raises rather than writing bad rows, so a break fails loudly instead of producing wrong data silently.
-- Six songs per week carry an extra "weeks at no. 1" column that the other 94 do not. Stat values are looked up by label rather than by position to handle this. See DECISIONS 009.
-- The parser takes an explicit filename and does not yet find the most recent chart on its own.
-
-**Planned phases**
-
-- Mix-level duplication in MusicBrainz is resolved by heuristic, not solved. See [docs/DECISIONS.md](docs/DECISIONS.md) entry 003.
-- Genre tags from MusicBrainz are sparse, often one or two votes per recording.
+- The parser depends on Billboard's current CSS class names, so a redesign will break it, but, a break fails loudly rather than by silently producing the wrong data. It validates structure before extracting values and raises an exception rather than writing bad rows. This has already happened once: Billboard changed their layout between September and October, and the validation caught it. See DECISIONS 010.
+- Some songs carry an extra "weeks at no. 1" column that the others do not. To handle this, I made stat values looked up by label rather than by position. See DECISIONS 009.
+- Matching runs 91–94%. The same handful of songs fail every week, so the failures are deterministic rather than flaky — worth investigating, but not yet done.
+- Unmatched songs aren't written to the enriched CSV, so a resumed run re-queries them. Fixing this properly means a status column recording why each song failed.
+- Mix-level duplication in MusicBrainz is resolved by heuristic, not solved. See DECISIONS 003.
+- Genre tags from MusicBrainz are sparse, often one or two votes per recording, so the genre question isn't well served yet.
+- Scheduled runs discard their `data/` directory when the machine is destroyed, so the raw HTML only persists for local runs.
 
 ## Decisions
 
@@ -94,8 +130,6 @@ Every significant design choice is logged in [docs/DECISIONS.md](docs/DECISIONS.
 
 ## Roadmap
 
-- **Phase 2, Enrichment:** done. Matches chart entries to MusicBrainz recordings by primary artist + title, verifying that the returned credits contain every artist Billboard listed. 91% match rate on the first chart; unmatched songs are skipped and counted by reason.
-- **Phase 3, Load:** move processed and enriched CSVs into SQLite, with a chart table and a recordings table joined on recording ID.
-- **Phase 4, Orchestration:** scheduling, retry handling, containerisation, and a migration from SQLite to PostgreSQL.
-
-**Deeper enrichment, later.** The matcher currently uses only what MusicBrainz's search endpoint returns. Their lookup endpoint can also provide community genre tags, artist attributes such as country of origin and whether the act is a person or a group, and relationship data covering producers and writers. Each costs an extra API call per song, so it is probably only worth doing once the pipeline runs end to end.
+- **Containerisation.** A Dockerfile so the environment is reproducible rather than depending on whatever Python a machine happens to have.
+- **Deeper enrichment.** The matcher currently uses only what MusicBrainz's search endpoint returns. Their lookup endpoint can also provide community genre tags, artist attributes such as country of origin and whether the act is a person or a group, and relationship data covering producers and writers. Each costs an extra API call per song, so we'll hold off on it for now.
+- **Logging.** Stages currently print to stderr, which GitHub Actions captures and timestamps. Proper structured logging would be better for finding failures across runs.
