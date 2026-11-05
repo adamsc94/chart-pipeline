@@ -140,3 +140,15 @@ Resumability is the real fix. Each matched row is written and flushed to disk im
 Known gap: unmatched songs aren't written to the file, so a resume re-queries them. With six failures per chart that's about fifteen wasted seconds. Fixing it properly means recording failures with a status column, but I have de-prioritized this for now.
 
 I deferred this twice before building it. It cost me two crashes and roughly seven minutes of API calls in one day, and I was about to schedule this to run unattended, where nobody would be watching to restart it.
+
+---
+
+## 013 — GitHub Actions running late is OK
+
+After inspecting the job's timestamp, I noticed the job ran 5 hours and 42 minutes late.
+
+GitHub free runners are best-effort, meaning if a higher priority job is scheduled at the same time as yours, your job will be postponed. In the case of this pipeline, a late run is inconsequential as long as it runs at some point during the week since the data only changes once a week.
+
+If it fails to run, and the week turns over before it is caught, the data would be lost forever, and that is a bigger problem that would be worth addressing. Some options might be to run at a less-congested hour, or to schedule a second weekly run as a backup.
+
+For now I'm accepting the delay and leaving the schedule as it is.
