@@ -1,0 +1,14 @@
+name: Build Docker image
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t chart-pipeline .

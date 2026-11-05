@@ -1,0 +1,12 @@
+.venv
+data
+.git
+.env
+docs
+explore
+analysis
+__pycache__
+*.pyc
+*.rtf
+.github
+tests

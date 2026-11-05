@@ -27,3 +27,4 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MB_CONTACT: ${{ secrets.MB_CONTACT }}
         run: python run_pipeline.py
+
