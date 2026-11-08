@@ -152,3 +152,17 @@ GitHub free runners are best-effort, meaning if a higher priority job is schedul
 If it fails to run, and the week turns over before it is caught, the data would be lost forever, and that is a bigger problem that would be worth addressing. Some options might be to run at a less-congested hour, or to schedule a second weekly run as a backup.
 
 For now I'm accepting the delay and leaving the schedule as it is.
+
+---
+---
+
+## 014 — Add a Dockerfile for reproducibility, but run the scheduled job without it
+
+I built this on an older 2017 Mac, so Docker won't run on my computer. However, I still wanted a Dockerfile for a cloned repo's setup, or to run when my local environment changes in some way.
+
+So I set up a Dockerfile and made `build.yml`, which runs on every push and verifies the image still builds. Since I can't build locally, CI is the only thing confirming the Dockerfile is valid. Note that this only proves the image builds, not that it runs: the `CMD` line is recorded during the build, never executed. Running something inside the container would be a stronger check.
+
+`weekly.yml` runs weekly on GitHub and does the environment setup that Docker would otherwise do. No Docker is involved. This avoids a redundant build every week and saves run time.
+
+If I wanted the scheduled run to use the container, the right way would be to build the image once, push it to a container registry, and have the weekly job pull and run it. That's more faithful to the point of containerising, but it's more machinery than a single weekly job needs right now.
+
