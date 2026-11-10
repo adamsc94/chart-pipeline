@@ -2,7 +2,7 @@
 
 Fetches the Billboard Hot 100 each week, parses it into validated structured data, enriches it with MusicBrainz metadata, and loads it into PostgreSQL. Runs weekly on GitHub Actions.
 
-**Status:** Running weekly on GitHub Actions. Four chart weeks collected so far, the most recent loaded without me touching anything. Containerisation is the remaining piece.
+**Status:** Running weekly on GitHub Actions, with a Dockerfile, built in CI, for a reproducible environment. Four chart weeks collected so far, the most recent loaded without me touching anything.
 
 ---
 
@@ -75,6 +75,19 @@ python enrich/match_recordings.py data/processed/hot100_2026-10-31.csv
 python load/load_db.py hot100_2026-10-31.csv
 ```
 
+### Running with Docker
+
+Instead of steps 2 and 4, you can build the image and run the pipeline in a container. You still need the `.env` from step 3.
+
+```bash
+docker build -t chart-pipeline .
+docker run --rm --env-file .env chart-pipeline
+```
+
+`.env` is excluded from the image by `.dockerignore`, so credentials are passed in at run time rather than baked in. The container's `data/` directory is discarded when it exits; add `-v "$(pwd)/data:/app/data"` to keep the raw HTML and CSVs on your machine.
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds the image on every push to confirm it still builds. The weekly scheduled run doesn't use it yet; it installs Python directly on the runner.
+
 ## Scheduling
 
 [`.github/workflows/weekly.yml`](.github/workflows/weekly.yml) runs the pipeline every Wednesday at 16:00 UTC, on GitHub's runners rather than my laptop. `MB_CONTACT` and `DATABASE_URL` are stored as repository secrets.
@@ -123,9 +136,9 @@ Collected data is not redistributed. `data/` is gitignored, so this repo holds t
 
 ## Known limitations
 
-- The parser depends on Billboard's current CSS class names, so a redesign will break it, but, a break fails loudly rather than by silently producing the wrong data. It validates structure before extracting values and raises an exception rather than writing bad rows. This has already happened once: Billboard changed their layout between September and October, and the validation caught it. See DECISIONS 010.
-- Some songs carry an extra "weeks at no. 1" column that the others do not. To handle this, I made stat values looked up by label rather than by position. See DECISIONS 009.
-- Matching runs 91–94%. The same handful of songs fail every week, so the failures are deterministic rather than flaky — worth investigating, but not yet done.
+- The parser depends on Billboard's current CSS class names, so a redesign will break it, but a break fails loudly rather than by silently producing the wrong data. It validates structure before extracting values and raises an exception rather than writing bad rows. This has already happened once: Billboard changed their layout between September and October, and the validation caught it. See DECISIONS 010.
+- Some songs carry an additional column, "weeks at no. 1", that the others do not. To handle this, I look up stat values by label rather than by position. See DECISIONS 009.
+- Matching runs 91–94%. The same handful of songs fail every week, so the failures are deterministic rather than flaky. These might be worth investigating later.
 - Unmatched songs aren't written to the enriched CSV, so a resumed run re-queries them. Fixing this properly means a status column recording why each song failed.
 - Mix-level duplication in MusicBrainz is resolved by heuristic, not solved. See DECISIONS 003.
 - Genre tags from MusicBrainz are sparse, often one or two votes per recording, so the genre question isn't well served yet.
@@ -138,5 +151,4 @@ Every significant design choice is logged in [docs/DECISIONS.md](docs/DECISIONS.
 
 ## Roadmap
 
-- **Containerisation.** A Dockerfile so the environment is reproducible rather than depending on whatever Python a machine happens to have.
-- **Deeper enrichment.** The matcher currently uses only what MusicBrainz's search endpoint returns. Their lookup endpoint can also provide community genre tags, artist attributes such as country of origin and whether the act is a person or a group, and relationship data covering producers and writers. Each costs an extra API call per song, so we'll hold off on it for now.
+- **Deeper enrichment.** The matcher currently uses only what MusicBrainz's search endpoint returns. Their lookup endpoint can also provide community genre tags, artist attributes such as country of origin and whether the act is a person or a group, and relationship data covering producers and writers. Each costs an extra API call per song, so I'm holding off on it for now.
