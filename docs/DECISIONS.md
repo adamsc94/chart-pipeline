@@ -166,3 +166,24 @@ So I set up a Dockerfile and made `build.yml`, which runs on every push and veri
 
 If I wanted the scheduled run to use the container, the right way would be to build the image once, push it to a container registry, and have the weekly job pull and run it. That's more faithful to the point of containerising, but it's more machinery than a single weekly job needs right now.
 
+---
+
+## 015 — Break ties on recording ID so matching is reproducible
+
+The same song was being matched to different MusicBrainz recordings in different weeks. Across four chart weeks, 17 songs had more than one recording ID, and "Petal" by Ariana Grande got a different ID every week, four in total. Because the recordings table is keyed on MBID (002), each new ID became a new row, so about 16% of that table is duplicates of songs that are already in it.
+
+I found it in the stored data, not in the code. The same title and artist showed up under several IDs in the database. The code had no error to show. Every pick followed the rules in 003 and 004: an ISRC, full credits, and the earliest release.
+
+The cause was the last step of `pick_match`. It takes the recording with the earliest `first-release-date`, and when several candidates share that date, `min()` returns whichever comes first in the list. That's MusicBrainz's search result order, and it changes from one call to the next. So tied recordings were effectively chosen at random, and a song that charts for several weeks got a fresh roll each week.
+
+The fix is to use the MBID as a secondary sort key. If the dates tie, the lowest ID wins, and the same set of candidates now always gives the same answer.
+
+This makes the match reproducible. It doesn't make it correct. The lowest MBID has no meaning. It's just a stable choice. If tied recordings really are different (an explicit and a clean version, a single edit, a re-recording), this picks one of them the same way every time, and that one may not be the version that charted. I've traded a random answer for a consistent one, and I'll only know whether it's the right one after I check some ties by hand.
+
+What this doesn't fix:
+
+- **The duplicates already in the database.** The fix only stops new ones. The existing rows need deduplicating, and any chart entries pointing at them need repointing to the surviving ID.
+- **A changing candidate set.** The search asks for 10 results. If MusicBrainz returns a different 10 from one week to the next, the tie-break is choosing from a different pool and can still land on a different recording. A full fix would store the first ID a song is matched to and reuse it in later weeks, so a charting song never gets re-matched.
+- **Mixed date precision.** Dates are compared as strings, so a year-only date like `2024` sorts before `2024-08-30`. A recording with a vague date can beat one with a precise date for the same day.
+
+What would change my mind: if hand-checking ties shows that some other field picks the charting version (track count, release type, or the label on the release), that field should become the tie-break, with MBID as the last resort.

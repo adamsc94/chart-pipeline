@@ -105,8 +105,13 @@ def pick_match(recordings, expected_artists):
     if not full_credit:
         return None, "credits_mismatch"
 
-    # Earliest release favours the original over a later remaster
-    best = min(full_credit, key=lambda r: r.get("first-release-date") or "9999")
+    # Earliest release favours the original over a later remaster. Ties on
+    # date are broken by MBID so the same candidates always give the same
+    # pick; MusicBrainz's result order is not stable between calls (DECISIONS 015)
+    best = min(
+        full_credit,
+        key=lambda r: (r.get("first-release-date") or "9999", r["id"]),
+    )
     return best, "matched"
 
 
