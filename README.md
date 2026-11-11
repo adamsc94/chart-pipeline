@@ -53,8 +53,8 @@ cp .env.example .env
 
 Then edit `.env`:
 
-- `MB_CONTACT` — your email. MusicBrainz requires a descriptive User-Agent with a real contact address, and Billboard gets the same honest identification.
-- `DATABASE_URL` — a PostgreSQL connection string. [Neon](https://neon.tech) has a free tier that's more than enough for this. The schema is created automatically on first load.
+- `MB_CONTACT`: your email. MusicBrainz requires a descriptive User-Agent with a real contact address, and Billboard gets the same honest identification.
+- `DATABASE_URL`: a PostgreSQL connection string. [Neon](https://neon.tech) has a free tier that's more than enough for this. The schema is created automatically on first load.
 
 `.env` is gitignored and never committed.
 
@@ -64,7 +64,7 @@ Then edit `.env`:
 python run_pipeline.py
 ```
 
-That runs all four stages in order, passing each stage's output to the next. Takes about four minutes, almost all of it in enrichment — MusicBrainz asks for roughly one request per second, so the pipeline waits 2.5 seconds between calls.
+That runs all four stages in order, passing each stage's output to the next. Takes about four minutes, almost all of it in enrichment. MusicBrainz asks for roughly one request per second, so the pipeline waits 2.5 seconds between calls.
 
 Each stage can also be run on its own if you want to re-do one step:
 
@@ -98,7 +98,7 @@ First scheduled run completed 4 November 2026; the Actions tab shows the run his
 
 ## Output
 
-**`chart_entries`** — one row per charting song, per week. `(chart_date, rank)` is the primary key, so re-running a load overwrites rather than duplicating.
+**`chart_entries`**: one row per charting song, per week. `(chart_date, rank)` is the primary key, so re-running a load overwrites rather than duplicating.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -112,7 +112,7 @@ First scheduled run completed 4 November 2026; the Actions tab shows the run his
 | `weeks_at_no_1` | int | 0 for songs that never topped the chart |
 | `mb_recording_id` | text or null | Links to `recordings`; null when no match was found |
 
-**`recordings`** — one row per MusicBrainz recording, stored once no matter how many weeks a song charts.
+**`recordings`**: one row per MusicBrainz recording, stored once no matter how many weeks a song charts.
 
 | Column | Type | Notes |
 |---|---|---|
