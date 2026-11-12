@@ -6,6 +6,7 @@ and counted by reason.
 """
 
 import csv
+import logging
 import os
 import re
 import sys
@@ -13,6 +14,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import psycopg
 import requests
 from dotenv import load_dotenv
 
@@ -21,6 +23,12 @@ load_dotenv()
 CONTACT = os.environ.get("MB_CONTACT")
 if not CONTACT:
     raise SystemExit("Set MB_CONTACT in .env")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise SystemExit("Set DATABASE_URL in .env")
+
+logger = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": f"chart-pipeline/0.1 ( {CONTACT} )"}
 BASE = "https://musicbrainz.org/ws/2"
@@ -123,6 +131,47 @@ def existing_ranks(outfile):
         return {row["rank"] for row in csv.DictReader(f)}
 
 
+def load_cache():
+    """(title, artist) -> stored recording for every pair already in Postgres.
+
+    Value is a dict of the mb_* output fields, or None when the pair has
+    appeared before without a match. If a pair has several rows that disagree,
+    the most recent chart_date wins. A missing table (first ever run) just
+    means an empty cache.
+    """
+    try:
+        with psycopg.connect(DATABASE_URL) as conn:
+            result = conn.execute(
+                """
+                SELECT DISTINCT ON (c.title, c.artist)
+                    c.title, c.artist, c.mb_recording_id,
+                    r.title, r.artist_credit, r.length_ms,
+                    r.first_release_date, r.isrc
+                FROM chart_entries c
+                LEFT JOIN recordings r USING (mb_recording_id)
+                ORDER BY c.title, c.artist, c.chart_date DESC
+                """
+            ).fetchall()
+    except psycopg.errors.UndefinedTable:
+        return {}
+
+    cache = {}
+    for title, artist, mbid, mb_title, credit, length, released, isrc in result:
+        cache[(title, artist)] = (
+            None
+            if mbid is None
+            else {
+                "mb_recording_id": mbid,
+                "mb_title": mb_title,
+                "mb_artist_credit": credit,
+                "mb_length_ms": length,
+                "mb_first_release_date": released,
+                "mb_isrc": isrc,
+            }
+        )
+    return cache
+
+
 def enrich_and_write(csv_path):
     """Enrich one processed chart CSV, writing each row as it is matched.
 
@@ -139,7 +188,11 @@ def enrich_and_write(csv_path):
     with csv_path.open(encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
 
+    cache = load_cache()
+    logger.info("Cache holds %d known (title, artist) pairs", len(cache))
+
     reasons = Counter()
+    n_entries = n_cached = n_new = n_new_matched = 0
     is_new = not outfile.exists()
 
     with outfile.open("a", newline="", encoding="utf-8") as f:
@@ -151,6 +204,27 @@ def enrich_and_write(csv_path):
             if row["rank"] in done:
                 continue
 
+            n_entries += 1
+            key = (row["title"], row["artist"])
+
+            # Seen before: reuse the stored answer, including "no match" (None)
+            if key in cache:
+                n_cached += 1
+                cached = cache[key]
+                if cached is not None:
+                    writer.writerow(
+                        {
+                            "chart_date": row["chart_date"],
+                            "rank": row["rank"],
+                            "title": row["title"],
+                            "artist": row["artist"],
+                            **cached,
+                        }
+                    )
+                    f.flush()
+                continue
+
+            n_new += 1
             artists = split_credit(row["artist"])
             recordings = search(artists[0], row["title"])
             match, reason = pick_match(recordings, artists)
@@ -164,6 +238,7 @@ def enrich_and_write(csv_path):
             if match is None:
                 continue
 
+            n_new_matched += 1
             writer.writerow(
                 {
                     "chart_date": row["chart_date"],
@@ -185,10 +260,19 @@ def enrich_and_write(csv_path):
         print(f"\nProcessed {total} songs this run", file=sys.stderr)
         for reason, n in reasons.most_common():
             print(f"  {reason:20} {n}", file=sys.stderr)
+    logger.info(
+        "Of %d entries, %d are new (%d matched), %d reused from the database "
+        "and skipped the MusicBrainz call",
+        n_entries,
+        n_new,
+        n_new_matched,
+        n_cached,
+    )
     print(f"\nWrote {outfile}", file=sys.stderr)
 
     return outfile
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     enrich_and_write(Path(sys.argv[1]))
