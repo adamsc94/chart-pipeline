@@ -38,16 +38,19 @@ def fetch_chart():
     # GitHub Actions throws its files away after each run, so keep a copy in
     # Postgres. No try/except: a failed insert should fail the run, because
     # silently losing the page is worse. chart_date is filled in later by parsing.
+    fetched_at = datetime.now(timezone.utc)
     html_gz = gzip.compress(outfile.read_bytes())
     with connect() as conn:  # saves (commits) at the end of the block
         conn.execute(
             "INSERT INTO raw_charts (fetched_at, url, html_gz, chart_date) "
             "VALUES (%s, %s, %s, NULL)",
-            (datetime.now(timezone.utc), CHART_URL, html_gz),
+            (fetched_at, CHART_URL, html_gz),
         )
     print(f"Stored {len(html_gz):,} compressed bytes in raw_charts", file=sys.stderr)
 
-    return outfile
+    # The database row is what parse reads; the file above is only a backup.
+    # fetched_at is the row's key, so parse can load exactly this page.
+    return fetched_at
 
 if __name__ == "__main__":
     fetch_chart()

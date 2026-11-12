@@ -14,7 +14,7 @@ What identifiable traits such as genre, song length, solo versus collaboration a
 
 ```mermaid
 flowchart LR
-    A[Billboard] -->|fetch| B[raw HTML]
+    A[Billboard] -->|fetch| B[raw HTML in Postgres]
     B -->|parse| C[processed CSV]
     C -->|enrich| D[enriched CSV]
     E[MusicBrainz] --> D
@@ -22,7 +22,7 @@ flowchart LR
     D --> F
 ```
 
-Raw HTML is saved to disk before any parsing so the parser can be iterated on offline against data already captured, without re-requesting the page. Past weeks cannot be re-fetched once a chart rolls over.
+Raw HTML is stored gzipped in Postgres (`raw_charts`) before any parsing, and the parser reads the page back from there rather than re-requesting it. Past weeks cannot be re-fetched once a chart rolls over, so this is the only record of each week's page. A copy is also written to `data/raw/` as a backup, but nothing reads it. See DECISIONS 016.
 
 Enrichment writes each matched row to disk immediately rather than holding results in memory, and skips ranks already present in the output file on a rerun. A crash costs one song, not the whole run.
 
@@ -70,7 +70,7 @@ Each stage can also be run on its own if you want to re-do one step:
 
 ```bash
 python -m ingest.fetch_chart
-python ingest/parse_chart.py data/raw/hot100_2026-10-31.html
+python -m ingest.parse_chart   # parses the most recently stored page
 python enrich/match_recordings.py data/processed/hot100_2026-10-31.csv
 python load/load_db.py hot100_2026-10-31.csv
 ```
@@ -123,6 +123,15 @@ First scheduled run completed 4 November 2026; the Actions tab shows the run his
 | `first_release_date` | text or null | Text, since MusicBrainz dates are sometimes just a year |
 | `isrc` | text or null | Industry recording identifier |
 
+**`raw_charts`**: one row per fetch, holding the page exactly as Billboard served it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `fetched_at` | timestamp | When the page was fetched, primary key |
+| `url` | text | The page fetched |
+| `html_gz` | bytes | The page, gzipped. About 220 KB a week |
+| `chart_date` | text or null | Filled in once the chart date is read from the page; null means it couldn't be read |
+
 Example queries live in [`analysis/`](analysis/).
 
 ## Data sources
@@ -143,7 +152,7 @@ Collected data is not redistributed. `data/` is gitignored, so this repo holds t
 - Mix-level duplication in MusicBrainz is resolved by heuristic, not solved. See DECISIONS 003.
 - Genre tags from MusicBrainz are sparse, often one or two votes per recording, so the genre question isn't well served yet.
 - Scheduled runs are best-effort on GitHub’s free runners. The first scheduled run fired 5 hours and 42 minutes after its cron time. This doesn’t affect data quality, since the chart doesn’t change during the day, but a run could in principle be skipped, which would cost a week permanently.
-- Scheduled runs discard their `data/` directory when the machine is destroyed, so the raw HTML only persists for local runs.
+- Each run parses only the page it just fetched. `chart_date` in `raw_charts` shows that the date was read, not that the songs parsed, and nothing goes back to re-parse a stored page that failed. The raw files fetched before `raw_charts` existed haven't been loaded into it. See DECISIONS 016.
 
 ## Decisions
 

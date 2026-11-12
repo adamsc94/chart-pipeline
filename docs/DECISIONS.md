@@ -187,3 +187,26 @@ What this doesn't fix:
 - **Mixed date precision.** Dates are compared as strings, so a year-only date like `2024` sorts before `2024-08-30`. A recording with a vague date can beat one with a precise date for the same day.
 
 What would change my mind: if hand-checking ties shows that some other field picks the charting version (track count, release type, or the label on the release), that field should become the tie-break, with MBID as the last resort.
+
+---
+
+## 016 — Store raw HTML in Postgres, and parse from it
+
+Scheduled runs throw away their `data/` directory, so every scheduled week's raw page was lost as soon as the run ended. Past charts can't be re-fetched, so if the parser ever got a week wrong, there was nothing to go back to.
+
+Fetch now gzips the page and stores it in a `raw_charts` table, keyed on the time it was fetched. A failed insert fails the run, since a run that looks fine but kept no raw copy is worse than one that fails. Parse then reads the page back from that row rather than from disk, using the exact `fetched_at` that fetch hands it. The file in `data/raw/` is still written, but only as a backup. Reading the stored copy back every week means the backup gets tested every week, not on the day I need it.
+
+I chose Postgres over object storage like Cloudflare R2. A week's page is about 3 MB and compresses to about 220 KB, so a year is around 11 MB. At that size another account and another set of credentials buy nothing.
+
+`chart_date` starts empty and is filled in as soon as the date is read from the page, before the songs are parsed. It answers one question: could the date be read? It says nothing about whether the 100 songs parsed. I think of those as separate, and a page can have a readable date and a broken song list.
+
+I kept this deliberately simple, and it has known gaps:
+
+- **One week per run.** Parse handles the page fetch just stored, and nothing goes back over older rows. If a week fails to parse, I'd re-run it by hand once the parser is fixed.
+- **No record of a full parse.** Nothing in the table says whether all 100 songs came out.
+- **Old raw files aren't in the table.** The pages fetched before this change only exist in `data/raw/` on my laptop.
+- **Same-week fetches aren't compared.** If two fetches produce the same `chart_date`, both are stored and nothing checks whether they differ.
+
+What would change my mind: if a week fails to parse and goes unnoticed, I'd add a `parsed` flag that is true only when the date and all 100 songs come out, and have the pipeline go back over any unparsed rows on each run. That means enrich and load would have to handle several weeks per run, which is why I've left it for now.
+
+Additionally, if our raw data storage size ballooned well past the roughly 11 MB a year we expect, I'd look into proper object storage such as R2.

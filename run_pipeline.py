@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 def main():
     logger.info("[1/4] Fetching chart")
-    raw_path = fetch_chart()
+    fetched_at = fetch_chart()
 
     logger.info("[2/4] Parsing")
-    processed_path = parse_and_write(raw_path)
+    processed_path = parse_and_write(fetched_at)
 
     logger.info("[3/4] Enriching with MusicBrainz")
     enrich_and_write(processed_path)

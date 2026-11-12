@@ -1,12 +1,15 @@
-"""Parse a saved Billboard Hot 100 HTML file into structured rows."""
+"""Parse a stored Billboard Hot 100 page (from raw_charts) into structured rows."""
 
 import csv
+import gzip
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from bs4 import BeautifulSoup
+
+from load.load_db import connect
 
 ROW_CLASS = "o-chart-results-list-row-container"
 REQUIRED_LABELS = ["LW", "PEAK", "WEEKS ON CHART"]
@@ -48,10 +51,7 @@ def extract_chart_date(soup):
     return datetime.strptime(match.group(1), "%B %d, %Y").date()
 
 
-def parse_chart(html_path):
-    html = Path(html_path).read_text(encoding="utf-8")
-    soup = BeautifulSoup(html, "html.parser")
-
+def parse_chart(soup):
     # Anchor on the 100 row containers first; searching the whole page for
     # titles would return ~615 matches from sidebars and promo modules.
     rows = soup.find_all("div", class_=ROW_CLASS)
@@ -149,12 +149,50 @@ def write_csv(songs, chart_date):
     return outfile
 
 
-def parse_and_write(html_path):
-    """Parse a saved chart page and write the processed CSV. Returns the path."""
-    html = Path(html_path).read_text(encoding="utf-8")
-    chart_date = extract_chart_date(BeautifulSoup(html, "html.parser"))
+def load_raw_page(conn, fetched_at=None):
+    """Return (fetched_at, html) for one stored page from raw_charts.
 
-    songs = parse_chart(html_path)
+    The pipeline passes the exact fetched_at that fetch_chart just stored.
+    With no fetched_at (a run by hand), it takes the most recent page.
+    """
+    if fetched_at is None:
+        row = conn.execute(
+            "SELECT fetched_at, html_gz FROM raw_charts "
+            "ORDER BY fetched_at DESC LIMIT 1"
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT fetched_at, html_gz FROM raw_charts WHERE fetched_at = %s",
+            (fetched_at,),
+        ).fetchone()
+
+    if row is None:
+        raise ValueError(f"No raw page in raw_charts for fetched_at={fetched_at}")
+
+    return row[0], gzip.decompress(row[1]).decode("utf-8")
+
+
+def parse_and_write(fetched_at=None):
+    """Parse a stored chart page and write the processed CSV. Returns the path.
+
+    Reads the page from raw_charts, not from disk; the file fetch_chart saves
+    is only a backup.
+    """
+    with connect() as conn:  # saves (commits) at the end of the block
+        fetched_at, html = load_raw_page(conn, fetched_at)
+        soup = BeautifulSoup(html, "html.parser")
+
+        # If the date can't be read this raises, and chart_date stays NULL.
+        chart_date = extract_chart_date(soup)
+
+        # Saved before the songs are parsed: the date is recorded even if the
+        # rest of the page fails.
+        conn.execute(
+            "UPDATE raw_charts SET chart_date = %s WHERE fetched_at = %s",
+            (chart_date.isoformat(), fetched_at),
+        )
+
+    songs = parse_chart(soup)
     outfile = write_csv(songs, chart_date)
     print(f"Wrote {len(songs)} rows for {chart_date} to {outfile}", file=sys.stderr)
 
@@ -162,4 +200,4 @@ def parse_and_write(html_path):
 
 
 if __name__ == "__main__":
-    parse_and_write(sys.argv[1])
+    parse_and_write()
