@@ -198,13 +198,15 @@ Fetch now gzips the page and stores it in a `raw_charts` table, keyed on the tim
 
 I chose Postgres over object storage like Cloudflare R2. A week's page is about 3 MB and compresses to about 220 KB, so a year is around 11 MB. At that size another account and another set of credentials buy nothing.
 
+The trade-off is that the backup lives in the same Neon database as the data it backs up. It protects against the scheduled run's disk being wiped and against the parser getting a week wrong, but not against losing the database itself. If the database went, the raw pages would go with it. For that I'm relying on Neon.
+
 `chart_date` starts empty and is filled in as soon as the date is read from the page, before the songs are parsed. It answers one question: could the date be read? It says nothing about whether the 100 songs parsed. I think of those as separate, and a page can have a readable date and a broken song list.
 
 I kept this deliberately simple, and it has known gaps:
 
 - **One week per run.** Parse handles the page fetch just stored, and nothing goes back over older rows. If a week fails to parse, I'd re-run it by hand once the parser is fixed.
 - **No record of a full parse.** Nothing in the table says whether all 100 songs came out.
-- **Old raw files aren't in the table.** The pages fetched before this change only exist in `data/raw/` on my laptop.
+- **Older pages have approximate fetch times.** The five pages fetched before this change were loaded from my laptop by `load/backfill_raw_charts.py`. Their real fetch times were never recorded, so `fetched_at` is each file's modification time.
 - **Same-week fetches aren't compared.** If two fetches produce the same `chart_date`, both are stored and nothing checks whether they differ.
 
 What would change my mind: if a week fails to parse and goes unnoticed, I'd add a `parsed` flag that is true only when the date and all 100 songs come out, and have the pipeline go back over any unparsed rows on each run. That means enrich and load would have to handle several weeks per run, which is why I've left it for now.

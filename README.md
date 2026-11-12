@@ -152,7 +152,7 @@ Collected data is not redistributed. `data/` is gitignored, so this repo holds t
 - Mix-level duplication in MusicBrainz is resolved by heuristic, not solved. See DECISIONS 003.
 - Genre tags from MusicBrainz are sparse, often one or two votes per recording, so the genre question isn't well served yet.
 - Scheduled runs are best-effort on GitHub’s free runners. The first scheduled run fired 5 hours and 42 minutes after its cron time. This doesn’t affect data quality, since the chart doesn’t change during the day, but a run could in principle be skipped, which would cost a week permanently.
-- Each run parses only the page it just fetched. `chart_date` in `raw_charts` shows that the date was read, not that the songs parsed, and nothing goes back to re-parse a stored page that failed. The raw files fetched before `raw_charts` existed haven't been loaded into it. See DECISIONS 016.
+- Each run parses only the page it just fetched. `chart_date` in `raw_charts` shows that the date was read, not that the songs parsed, and nothing goes back to re-parse a stored page that failed. The five pages fetched before `raw_charts` existed were backfilled with their file modification time as an approximate `fetched_at`. See DECISIONS 016.
 
 ## Decisions
 
