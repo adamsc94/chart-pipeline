@@ -69,7 +69,7 @@ That runs all four stages in order, passing each stage's output to the next. Tak
 Each stage can also be run on its own if you want to re-do one step:
 
 ```bash
-python ingest/fetch_chart.py
+python -m ingest.fetch_chart
 python ingest/parse_chart.py data/raw/hot100_2026-10-31.html
 python enrich/match_recordings.py data/processed/hot100_2026-10-31.csv
 python load/load_db.py hot100_2026-10-31.csv

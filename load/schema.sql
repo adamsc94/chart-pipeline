@@ -1,6 +1,17 @@
 -- SQLite schema for the chart pipeline.
 -- Standard SQL where possible, so the move to PostgreSQL later is small.
 
+-- Raw Billboard HTML, kept in the database because the GitHub Actions
+-- filesystem is thrown away after each run. chart_date stays NULL until
+-- the chart date has been read from the page.
+CREATE TABLE IF NOT EXISTS raw_charts (
+    fetched_at  TIMESTAMPTZ NOT NULL,
+    url         TEXT NOT NULL,
+    html_gz     BYTEA NOT NULL,
+    chart_date  TEXT,
+    PRIMARY KEY (fetched_at)
+);
+
 CREATE TABLE IF NOT EXISTS recordings (
     mb_recording_id    TEXT PRIMARY KEY,
     title              TEXT NOT NULL,
