@@ -2,13 +2,50 @@
 
 Fetches the Billboard Hot 100 each week, parses it into validated structured data, enriches it with MusicBrainz metadata, and loads it into PostgreSQL. Runs weekly on GitHub Actions.
 
-**Status:** Running weekly on GitHub Actions, with a Dockerfile, built in CI, for a reproducible environment. Four chart weeks collected so far, the most recent loaded without me touching anything.
+**Status:** Running weekly on GitHub Actions, with a Dockerfile, built in CI, for a reproducible environment. Five chart weeks collected so far, the most recent loaded without me touching anything.
 
 ---
 
 ## The question
 
 What identifiable traits such as genre, song length, solo versus collaboration are trending in hit music?
+
+## Findings
+
+Five chart weeks so far (Oct 3, Oct 10, Oct 31, Nov 7 and Nov 14, 2026), 153 distinct songs. These are what the data can support at that size. Each one has a query in [`analysis/`](analysis/), and [`analysis/make_charts.py`](analysis/make_charts.py) redraws the charts from the database.
+
+### 1. About one in five Hot 100 songs is a collaboration, and they don't chart any higher than solo songs
+
+![Collaborations per week, and median chart position for solo songs vs. collaborations](analysis/charts/01_collaborations.png)
+
+Collaborations held 19 to 21 of the 100 slots in every week collected. They show no advantage in position. In two of the five weeks the typical collaboration sat above the typical solo song, and in the other three it sat below. Counting each song once, collaborations peaked a little lower (median peak 42, against 29 for solo songs), but with only 33 collaborations that gap is too small to claim. Query: [`01_collaborations.sql`](analysis/01_collaborations.sql).
+
+Further analysis could probe how the share of collaborations vs solo has changed over time.
+
+### 2. Song length says almost nothing about chart position
+
+![Song length against peak chart position](analysis/charts/02_song_length.png)
+
+Of the 138 songs with a known length, 79% run between 2:30 and 4:00, and the median is 3:22. Inside that narrow range, length doesn't predict rank. The correlation between length and rank within a single week runs from -0.04 to -0.18, which is close to none. Against a song's all-time peak there is a weak lean toward longer songs (-0.21). I wouldn't build anything on it. Query: [`02_song_length.sql`](analysis/02_song_length.sql).
+
+An additional interesting question in this domain might be to see how the average song length on the billboard compares to an average non-billboard song, although we would need to be careful to define what an "average" song is and how we would collect that data. 
+
+### 3. Songs that return to the chart usually come back near the bottom. Around Halloween they came back in the top 40
+
+![Chart position of every re-entry, by chart week](analysis/charts/03_reentries.png)
+
+The chart changes slowly. Between consecutive weeks, 86 to 91 of the 100 songs carried over, and the typical song on the chart had been there 11 to 14 weeks. A song that drops off and returns normally re-enters low. On the Oct 10 and Oct 31 charts, all nine re-entries landed at #73 or lower. The charts dated Nov 7 and Nov 14, which cover the days around Halloween, look different. Six of their nine re-entries landed in the top 40, among them "Thriller" at #20 (it reached #2 a week later), "Ghostbusters" at #12 and "Monster Mash" at #13. Two Christmas songs were already back by Nov 14. Query: [`03_reentries.sql`](analysis/03_reentries.sql).
+
+### Limitations
+
+- **Five weeks is not much.** These describe October and November 2026 and nothing wider. Finding 3 rests on 23 re-entries and a single Halloween.
+- **There is a gap.** The charts dated Oct 17 and Oct 24 were never collected and can't be fetched now. Week-to-week numbers use only the three pairs of back-to-back weeks. Re-entries are read from Billboard's own "last week" field, so the gap can't invent one, but any that happened during the gap are missing.
+- **Length depends on the MusicBrainz match.** 90 to 94 songs match each week, and 15 songs never matched, including "Thriller" and "Monster Mash". Unmatched songs are spread across the chart and not bunched at one end. Four matches look like a different version of the song (a remix or an extended cut), and leaving them out moves the correlations by 0.02 at most. Findings 1 and 3 use only Billboard's fields, so match errors can't touch them.
+- **Release dates were not used.** MusicBrainz's `first_release_date` is wrong often enough to mislead. Rockwell's "Somebody's Watching Me", from 1984, is dated 2025. That ruled out measuring how old the returning songs are, so calling them Halloween songs is my reading of the titles and not something the data labels.
+- **A song is a title plus an artist string.** When a credit changes, the song splits in two. "Expectations" charted as Olivia Rodrigo, then as Olivia Rodrigo & Chappell Roan, and counts once as solo and once as a collaboration.
+- **"Weeks on chart" is a lifetime total.** It includes earlier runs, so "All I Want For Christmas Is You" shows 80 weeks. It says how long a song has charted in total, not how long its current run has lasted.
+
+The checks behind these caveats are in [`analysis/pressure_tests.sql`](analysis/pressure_tests.sql).
 
 ## Architecture
 
